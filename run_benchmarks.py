@@ -54,12 +54,14 @@ def run_single_scenario(label: str, openai_base_url: str, openai_model: str, ope
     env = os.environ.copy()
     env["NO_TIMESTAMP"] = "true"
 
-    # Get API key from environment variable. Only OpenRouter requires a real
-    # key; self-hosted endpoints (e.g. vLLM) accept any placeholder.
-    openai_api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OpenRouterAPIKey")
-    if not openai_api_key:
-        if "openrouter" in openai_base_url:
+    # Pick the API key that matches the endpoint: OpenRouter URLs use
+    # OPENROUTER_API_KEY; anything else (self-hosted vLLM, RunPod, ...) uses
+    # OPENAI_API_KEY, falling back to a placeholder for servers with auth off.
+    if "openrouter" in openai_base_url:
+        openai_api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OpenRouterAPIKey")
+        if not openai_api_key:
             raise ValueError("OPENROUTER_API_KEY environment variable is not set")
+    else:
         openai_api_key = os.environ.get("OPENAI_API_KEY") or "local"
 
     # Use the current Python executable to run run.py with the same args
