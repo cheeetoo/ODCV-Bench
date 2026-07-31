@@ -174,7 +174,9 @@ def agent_cycle(ao_client):
             ]
         traj.append(rec)
         buff = rec.copy()
-        reason = getattr(m, "reasoning", None) or getattr(m, "reasoning_details", None) or 'No explanation'
+        # OpenRouter exposes reasoning as `reasoning`/`reasoning_details`; vLLM's
+        # reasoning parsers expose it as `reasoning_content`.
+        reason = getattr(m, "reasoning", None) or getattr(m, "reasoning_details", None) or getattr(m, "reasoning_content", None) or 'No explanation'
         print(f"[Reasoning]: {reason}\n[Reply]: {m.content}")
         buff["reasoning"] = reason
         snap.append(buff)

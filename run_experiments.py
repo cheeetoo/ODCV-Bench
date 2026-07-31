@@ -20,27 +20,42 @@ RESULTS_DIR = WORKSPACE / "results"
 RUN_BENCHMARKS_PY = WORKSPACE / "run_benchmarks.py"
 
 
-# List of experiment settings: (base_url, model_name, result_folder_name)
+# List of experiment settings: (base_url, model_name, result_folder_name[, temperature])
+# The optional 4th element overrides the sampling temperature (default "0.0").
 OR = 'https://openrouter.ai/api/v1'
+# Self-hosted OpenAI-compatible endpoint (e.g. vLLM). The URL is resolved from
+# inside the executor container, so "localhost" will not work:
+#   - vLLM on the same machine as Docker: http://host.docker.internal:8000/v1
+#   - vLLM on a remote GPU box: set VLLM_BASE_URL=http://<host>:8000/v1
+VLLM = os.environ.get('VLLM_BASE_URL', 'http://host.docker.internal:8000/v1')
 # Complete reproduction manifest for the 12 models reported in the paper.
 # Running this script as-is executes all 12 models sequentially on a single
 # host; comment out entries to shard across multiple hosts if needed.
 EXPERIMENT_SETTINGS = [
+    # Olmo 3 Think checkpoints served locally with vLLM. Serve one checkpoint
+    # at a time and enable the matching entry here, e.g.:
+    #   vllm serve allenai/Olmo-3-32B-Think-SFT --tensor-parallel-size 2 \
+    #     --enable-auto-tool-choice --tool-call-parser olmo3 --reasoning-parser olmo3
+    # Temperature 0.6 per the Olmo 3 Think model card (greedy decoding makes
+    # long-CoT models prone to repetition loops); use "0.0" to match the
+    # paper's protocol instead.
+    (VLLM, 'allenai/Olmo-3-32B-Think-SFT',  'olmo-3-32b-think-sft', '0.6'),
+    # (VLLM, 'allenai/Olmo-3-32B-Think',      'olmo-3-32b-think', '0.6'),
     # Judges (also evaluated as agents):
-    (OR, 'anthropic/claude-opus-4.7',       'claude-opus-4.7'),
-    (OR, 'openai/gpt-5.5',                  'gpt-5.5'),
-    (OR, 'x-ai/grok-4.20',                  'grok-4.20'),
-    (OR, 'google/gemini-3.1-pro-preview',   'gemini-3.1-pro-preview'),
+    # (OR, 'anthropic/claude-opus-4.7',       'claude-opus-4.7'),
+    # (OR, 'openai/gpt-5.5',                  'gpt-5.5'),
+    # (OR, 'x-ai/grok-4.20',                  'grok-4.20'),
+    # (OR, 'google/gemini-3.1-pro-preview',   'gemini-3.1-pro-preview'),
     # Other proprietary / large models:
-    (OR, 'qwen/qwen3.6-max-preview',        'qwen3.6-max-preview'),
-    (OR, 'moonshotai/kimi-k2.6',            'kimi-k2.6'),
+    # (OR, 'qwen/qwen3.6-max-preview',        'qwen3.6-max-preview'),
+    # (OR, 'moonshotai/kimi-k2.6',            'kimi-k2.6'),
     # Open-weight models:
-    (OR, 'meta-llama/llama-4-maverick',     'llama-4-maverick'),
-    (OR, 'openai/gpt-oss-20b',              'gpt-oss-20b'),
-    (OR, 'openai/gpt-oss-120b',             'gpt-oss-120b'),
-    (OR, 'z-ai/glm-5.1',                    'glm-5.1'),
-    (OR, 'minimax/minimax-m2.7',            'minimax-m2.7'),
-    (OR, 'qwen/qwen3.6-27b',                'qwen3.6-27b'),
+    # (OR, 'meta-llama/llama-4-maverick',     'llama-4-maverick'),
+    # (OR, 'openai/gpt-oss-20b',              'gpt-oss-20b'),
+    # (OR, 'openai/gpt-oss-120b',             'gpt-oss-120b'),
+    # (OR, 'z-ai/glm-5.1',                    'glm-5.1'),
+    # (OR, 'minimax/minimax-m2.7',            'minimax-m2.7'),
+    # (OR, 'qwen/qwen3.6-27b',                'qwen3.6-27b'),
 ]
 
 # Previous-generation models used for the Safety Across Model Generations
@@ -92,16 +107,17 @@ def copy_scenarios(source_dir: Path, target_dir: Path):
     print(f"  Successfully copied {source_dir.name} to {target_dir.name}")
 
 
-def run_benchmarks(openai_base_url: str, openai_model: str):
+def run_benchmarks(openai_base_url: str, openai_model: str, temperature: str = "0.0"):
     """Run the benchmark script with given parameters."""
     print(f"  Running benchmarks with model: {openai_model}")
     print(f"  API base URL: {openai_base_url}")
-    
+
     cmd = [
         sys.executable,
         str(RUN_BENCHMARKS_PY),
         "--openai-base-url", openai_base_url,
         "--openai-model", openai_model,
+        "--openai-temperature", temperature,
     ]
     
     try:
@@ -158,12 +174,13 @@ def move_experiments_to_results(result_folder_name: str, scenario_type: str):
     return True
 
 
-def run_experiment_config(base_url: str, model_name: str, result_folder_name: str):
+def run_experiment_config(base_url: str, model_name: str, result_folder_name: str, temperature: str = "0.0"):
     """Run a single experiment configuration for both mandated and incentivized scenarios."""
     print(f"\n{'='*80}")
     print(f"Running experiment configuration: {result_folder_name}")
     print(f"Model: {model_name}")
     print(f"Base URL: {base_url}")
+    print(f"Temperature: {temperature}")
     print(f"{'='*80}\n")
     
     # === MANDATED SCENARIOS ===
@@ -173,9 +190,9 @@ def run_experiment_config(base_url: str, model_name: str, result_folder_name: st
     try:
         # Copy mandated_scenarios to scenarios
         copy_scenarios(MANDATED_SCENARIOS_DIR, SCENARIOS_DIR)
-        
+
         # Run benchmarks
-        success = run_benchmarks(base_url, model_name)
+        success = run_benchmarks(base_url, model_name, temperature)
         
         # Move experiments to results
         if success or EXPERIMENTS_DIR.exists():
@@ -201,9 +218,9 @@ def run_experiment_config(base_url: str, model_name: str, result_folder_name: st
     try:
         # Copy incentivized_scenarios to scenarios
         copy_scenarios(INCENTIVIZED_SCENARIOS_DIR, SCENARIOS_DIR)
-        
+
         # Run benchmarks
-        success = run_benchmarks(base_url, model_name)
+        success = run_benchmarks(base_url, model_name, temperature)
         
         # Move experiments to results
         if success or EXPERIMENTS_DIR.exists():
@@ -250,13 +267,15 @@ def main():
     
     # Run each experiment configuration
     start_time = time.time()
-    for i, (base_url, model_name, result_folder_name) in enumerate(EXPERIMENT_SETTINGS, 1):
+    for i, setting in enumerate(EXPERIMENT_SETTINGS, 1):
+        base_url, model_name, result_folder_name = setting[:3]
+        temperature = setting[3] if len(setting) > 3 else "0.0"
         print(f"\n\n{'#'*80}")
         print(f"Experiment {i}/{len(EXPERIMENT_SETTINGS)}: {result_folder_name}")
         print(f"{'#'*80}")
-        
+
         try:
-            run_experiment_config(base_url, model_name, result_folder_name)
+            run_experiment_config(base_url, model_name, result_folder_name, temperature)
         except KeyboardInterrupt:
             print("\n\n[INFO] Experiment interrupted by user")
             return 1

@@ -21,6 +21,10 @@ services:
       - OPENAI_MODEL=${OPENAI_MODEL:-openai/gpt-oss-120b}
       # Choose decoding strategy by setting OPENAI_TEMPERATURE (0.0 = greedy/deterministic, 0.7 = sampled)
       - OPENAI_TEMPERATURE=${OPENAI_TEMPERATURE:-0.0}
+    # Make host.docker.internal resolve on Linux hosts too (no-op on
+    # Docker Desktop), so a vLLM server on the docker host is reachable.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       orchestrator:
         condition: service_healthy

@@ -50,15 +50,18 @@ def copy_scenario_into_orchestrator(scenario_dir: Path):
             shutil.copy2(item, target)
 
 
-def run_single_scenario(label: str, openai_base_url: str, openai_model: str) -> int | None:
+def run_single_scenario(label: str, openai_base_url: str, openai_model: str, openai_temperature: str = "0.0") -> int | None:
     env = os.environ.copy()
     env["NO_TIMESTAMP"] = "true"
-    
-    # Get API key from environment variable
+
+    # Get API key from environment variable. Only OpenRouter requires a real
+    # key; self-hosted endpoints (e.g. vLLM) accept any placeholder.
     openai_api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OpenRouterAPIKey")
     if not openai_api_key:
-        raise ValueError("OPENROUTER_API_KEY environment variable is not set")
-    
+        if "openrouter" in openai_base_url:
+            raise ValueError("OPENROUTER_API_KEY environment variable is not set")
+        openai_api_key = os.environ.get("OPENAI_API_KEY") or "local"
+
     # Use the current Python executable to run run.py with the same args
     cmd = [
         sys.executable,
@@ -68,7 +71,7 @@ def run_single_scenario(label: str, openai_base_url: str, openai_model: str) -> 
         "--openai-base-url", openai_base_url,
         "--openai-api-key", openai_api_key,
         "--openai-model", openai_model,
-        "--openai-temperature", "0.0"
+        "--openai-temperature", openai_temperature
     ]
     try:
         completed = subprocess.run(
@@ -121,6 +124,11 @@ def main():
         required=True,
         help="OpenAI model name (e.g., qwen/qwen3-max)"
     )
+    parser.add_argument(
+        "--openai-temperature",
+        default="0.0",
+        help="Sampling temperature (0.0 = greedy/deterministic)"
+    )
     args = parser.parse_args()
     
     ensure_paths()
@@ -137,7 +145,7 @@ def main():
         try:
             reset_orchestrator_api()
             copy_scenario_into_orchestrator(scenario)
-            return_code = run_single_scenario(label, args.openai_base_url, args.openai_model)
+            return_code = run_single_scenario(label, args.openai_base_url, args.openai_model, args.openai_temperature)
             print(f"[INFO] Scenario {label} completed with return code {return_code}")
         except Exception as e:
             print(f"[ERROR] Scenario {label} failed: {e}")
