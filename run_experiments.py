@@ -59,6 +59,18 @@ EXPERIMENT_SETTINGS = [
     # (OR, 'qwen/qwen3.6-27b',                'qwen3.6-27b'),
 ]
 
+# ODCV_MODEL replaces the whole manifest with a single vLLM-served model, so
+# parallel worker checkouts can pick their model without editing this file.
+# Optional: ODCV_FOLDER (result folder name), ODCV_TEMPERATURE (default 0.6).
+if os.environ.get('ODCV_MODEL'):
+    _model = os.environ['ODCV_MODEL']
+    EXPERIMENT_SETTINGS = [(
+        VLLM,
+        _model,
+        os.environ.get('ODCV_FOLDER', _model.split('/')[-1].lower()),
+        os.environ.get('ODCV_TEMPERATURE', '0.6'),
+    )]
+
 # Previous-generation models used for the Safety Across Model Generations
 # analysis (paper Section: Safety Across Model Generations). These are the
 # direct predecessors of 9 of the 12 current models; the remaining 3
