@@ -3,6 +3,7 @@
 Automated experiment runner that executes benchmarks for multiple model configurations.
 For each configuration, it runs both mandated and incentivized scenarios and organizes results.
 """
+import argparse
 import os
 import sys
 import shutil
@@ -174,77 +175,71 @@ def move_experiments_to_results(result_folder_name: str, scenario_type: str):
     return True
 
 
-def run_experiment_config(base_url: str, model_name: str, result_folder_name: str, temperature: str = "0.0"):
-    """Run a single experiment configuration for both mandated and incentivized scenarios."""
+def run_experiment_config(base_url: str, model_name: str, result_folder_name: str,
+                          temperature: str = "0.0",
+                          variations: tuple = ("mandated", "incentivized")):
+    """Run a single experiment configuration for the selected scenario variations."""
     print(f"\n{'='*80}")
     print(f"Running experiment configuration: {result_folder_name}")
     print(f"Model: {model_name}")
     print(f"Base URL: {base_url}")
     print(f"Temperature: {temperature}")
+    print(f"Variations: {', '.join(variations)}")
     print(f"{'='*80}\n")
-    
-    # === MANDATED SCENARIOS ===
-    print(f"\n--- Running MANDATED scenarios for {result_folder_name} ---")
+
     t1 = time.time()
-    
-    try:
-        # Copy mandated_scenarios to scenarios
-        copy_scenarios(MANDATED_SCENARIOS_DIR, SCENARIOS_DIR)
 
-        # Run benchmarks
-        success = run_benchmarks(base_url, model_name, temperature)
-        
-        # Move experiments to results
-        if success or EXPERIMENTS_DIR.exists():
-            move_experiments_to_results(result_folder_name, "mandated")
-        
-        elapsed = (time.time() - t1) / 60
-        print(f"  Explicit scenarios completed in {elapsed:.1f} minutes")
-        
-    except Exception as e:
-        print(f"  [ERROR] Failed to run mandated scenarios: {e}")
-        import traceback
-        traceback.print_exc()
-    
-    # Clean up scenarios directory
-    if SCENARIOS_DIR.exists():
-        print(f"  Cleaning up scenarios directory...")
-        shutil.rmtree(SCENARIOS_DIR)
-    
-    # === INCENTIVIZED SCENARIOS ===
-    print(f"\n--- Running INCENTIVIZED scenarios for {result_folder_name} ---")
-    t2 = time.time()
-    
-    try:
-        # Copy incentivized_scenarios to scenarios
-        copy_scenarios(INCENTIVIZED_SCENARIOS_DIR, SCENARIOS_DIR)
+    for variation, source_dir in (("mandated", MANDATED_SCENARIOS_DIR),
+                                  ("incentivized", INCENTIVIZED_SCENARIOS_DIR)):
+        if variation not in variations:
+            continue
+        print(f"\n--- Running {variation.upper()} scenarios for {result_folder_name} ---")
+        t_var = time.time()
 
-        # Run benchmarks
-        success = run_benchmarks(base_url, model_name, temperature)
-        
-        # Move experiments to results
-        if success or EXPERIMENTS_DIR.exists():
-            move_experiments_to_results(result_folder_name, "incentivized")
-        
-        elapsed = (time.time() - t2) / 60
-        print(f"  Implicit scenarios completed in {elapsed:.1f} minutes")
-        
-    except Exception as e:
-        print(f"  [ERROR] Failed to run incentivized scenarios: {e}")
-        import traceback
-        traceback.print_exc()
-    
-    # Clean up scenarios directory
-    if SCENARIOS_DIR.exists():
-        print(f"  Cleaning up scenarios directory...")
-        shutil.rmtree(SCENARIOS_DIR)
-    
+        try:
+            # Copy the variation's scenarios to scenarios/
+            copy_scenarios(source_dir, SCENARIOS_DIR)
+
+            # Run benchmarks
+            success = run_benchmarks(base_url, model_name, temperature)
+
+            # Move experiments to results
+            if success or EXPERIMENTS_DIR.exists():
+                move_experiments_to_results(result_folder_name, variation)
+
+            elapsed = (time.time() - t_var) / 60
+            print(f"  {variation.capitalize()} scenarios completed in {elapsed:.1f} minutes")
+
+        except Exception as e:
+            print(f"  [ERROR] Failed to run {variation} scenarios: {e}")
+            import traceback
+            traceback.print_exc()
+
+        # Clean up scenarios directory
+        if SCENARIOS_DIR.exists():
+            print(f"  Cleaning up scenarios directory...")
+            shutil.rmtree(SCENARIOS_DIR)
+
     total_elapsed = (time.time() - t1) / 60
     print(f"\n  Total time for {result_folder_name}: {total_elapsed:.1f} minutes")
 
 
 def main():
     """Main entry point."""
+    parser = argparse.ArgumentParser(description="Run benchmark suites for configured models")
+    parser.add_argument(
+        "--variations",
+        default="mandated,incentivized",
+        help="Comma-separated subset of variations to run. Lets parallel "
+             "checkouts split one model's scenarios (e.g. --variations mandated)",
+    )
+    args = parser.parse_args()
+    variations = tuple(v.strip() for v in args.variations.split(",") if v.strip())
+    invalid = [v for v in variations if v not in ("mandated", "incentivized")]
+    if invalid:
+        print(f"[ERROR] Unknown variation(s): {', '.join(invalid)}")
+        return 1
+
     print("="*80)
     print("Automated Experiment Runner")
     print("="*80)
@@ -275,7 +270,7 @@ def main():
         print(f"{'#'*80}")
 
         try:
-            run_experiment_config(base_url, model_name, result_folder_name, temperature)
+            run_experiment_config(base_url, model_name, result_folder_name, temperature, variations)
         except KeyboardInterrupt:
             print("\n\n[INFO] Experiment interrupted by user")
             return 1

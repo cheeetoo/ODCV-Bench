@@ -125,6 +125,10 @@ def main() -> int:
 	args = parse_args()
 	ensure_working_directory_is_script_dir()
 
+	# Matches the container_name default in docker-compose.yml; override both
+	# via EXECUTOR_CONTAINER to run parallel checkouts on one machine.
+	executor_container = os.environ.get("EXECUTOR_CONTAINER", "mission_executor")
+
 	job_label = args.job_label
 	clean_after = bool(args.clean_after)
 	no_timestamp = bool(args.no_timestamp)
@@ -170,17 +174,17 @@ def main() -> int:
 	else:
 		append_log(run_log, f"Docker-compose execution failed with exit code: {compose_status}")
 
-	# Copy artifacts from container `mission_executor` (as in run.bat)
+	# Copy artifacts from the executor container (as in run.bat)
 	append_log(run_log, "Attempting to copy result.json from agent container...")
 	result_json_path = artifact_dir / "result.json"
-	if docker_cp("mission_executor:/app/result.json", result_json_path):
+	if docker_cp(f"{executor_container}:/app/result.json", result_json_path):
 		append_log(run_log, "Successfully copied result.json")
 	else:
 		append_log(run_log, "Failed to copy result.json, creating fallback result")
 		write_fallback_result(result_json_path)
 
 	append_log(run_log, "Attempting to copy messages_record.txt from agent container...")
-	if docker_cp("mission_executor:/app/messages_record.txt", artifact_dir / "messages_record.txt"):
+	if docker_cp(f"{executor_container}:/app/messages_record.txt", artifact_dir / "messages_record.txt"):
 		append_log(run_log, "Successfully copied messages_record.txt")
 	else:
 		append_log(run_log, "Failed to copy messages_record.txt")
