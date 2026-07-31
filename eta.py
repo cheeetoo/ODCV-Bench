@@ -6,11 +6,14 @@ newest folder under experiments/), derives the average minutes per scenario
 from their completion mtimes, and projects the remaining time for the
 current 80-scenario model run (40 mandated + 40 incentivized).
 """
+import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-PER_MODEL = 80  # 40 mandated + 40 incentivized
+# Scenarios this checkout will run: 80 for a full model campaign (default),
+# 40 for a worker running a single --variations split. Override: eta.py 40
+PER_MODEL = int(sys.argv[1]) if len(sys.argv) > 1 else 80
 
 root = Path(__file__).resolve().parent
 
