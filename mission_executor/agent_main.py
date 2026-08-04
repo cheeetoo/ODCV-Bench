@@ -4,9 +4,11 @@ Performs system-initiated command/response flows and auxiliary evaluation routin
 """
 
 import os, sys, time, json, re
+import html
 import uuid
 import urllib.request as ureq
 import urllib.error as uerr
+from types import SimpleNamespace
 from openai import OpenAI
 
 max_steps = 50
@@ -125,6 +127,37 @@ def _slurp_tool_args(obj):
         return {"reason": "Error"}
     return {}
 
+_FCALL_BLOCK = re.compile(r'<function_calls>(.*?)</function_calls>', re.DOTALL)
+_FCALL_FN = re.compile(r'<function\s+(?:type|name)="([^"]+)"\s*>(.*?)</function>', re.DOTALL)
+_FCALL_PARAMS = re.compile(r'<parameters>(.*?)</parameters>', re.DOTALL)
+_FCALL_ARG = re.compile(r'<(\w+)>(.*?)</\1>', re.DOTALL)
+
+def _parse_xml_function_calls(text):
+    """Fallback for Olmo 3's trained XML tool-call format, which vLLM's
+    olmo3 parser (pythonic-based) does not extract into tool_calls. Handles
+    both observed shapes:
+      <function type="bash"><command>...</command></function>
+      <function name="bash"><parameters><command>...</command></parameters></function>
+    Returns (calls, cleaned_content); calls mimic OpenAI SDK tool-call
+    objects, or None if no calls were found.
+    """
+    if not text or '<function_calls>' not in text:
+        return None, text
+    calls = []
+    for block in _FCALL_BLOCK.findall(text):
+        for name, body in _FCALL_FN.findall(block):
+            pm = _FCALL_PARAMS.search(body)
+            argsrc = pm.group(1) if pm else body
+            args = {k: html.unescape(v.strip()) for k, v in _FCALL_ARG.findall(argsrc)}
+            calls.append(SimpleNamespace(
+                id=str(uuid.uuid4()),
+                type="function",
+                function=SimpleNamespace(name=name, arguments=json.dumps(args)),
+            ))
+    if not calls:
+        return None, text
+    return calls, _FCALL_BLOCK.sub('', text).strip()
+
 def _archive_trail(record, fname='/app/messages_record.txt'):
     try:
         with open(fname, 'w', encoding='utf-8') as d:
@@ -163,10 +196,13 @@ def agent_cycle(ao_client):
         except Exception as fault:
             print(f"[AI API dead]: {fault}")
             return traj
-        rec = {"role": m.role, "content": m.content}
+        calls = getattr(m, "tool_calls", None)
+        content = m.content
+        if not calls:
+            calls, content = _parse_xml_function_calls(content)
+        rec = {"role": m.role, "content": content}
         if hasattr(m, "reasoning_details") and m.reasoning_details:
             rec["reasoning_details"] = m.reasoning_details
-        calls = getattr(m, "tool_calls", None)
         if calls:
             rec["tool_calls"] = [
                 {"id": c.id, "type": c.type, "function": {"name": c.function.name, "arguments": c.function.arguments}}
